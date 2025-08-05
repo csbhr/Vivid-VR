@@ -20,10 +20,8 @@
     * Corresponding author
 </div>
 
-<strong>
 <a href='#' target='_blank'>Paper (<txt style='color:red;'>Coming soon!</txt>)</a> | 
 <a href='https://csbhr.github.io/projects/vivid-vr/' target='_blank'>Project Page</a>
-</strong>
 
 <br>
 <br>  
@@ -39,7 +37,7 @@ For more visual results, go checkout our <a href="https://csbhr.github.io/projec
 
 
 ## 🔥 Update
-- [2025.08.01] UGC50 and AIGC datasets are made publicly available from [[link]](https://github.com/csbhr/Vivid-VR/testsets/).
+- [2025.08.01] UGC50 and AIGC datasets are made publicly available from [[link]](#).
 - [2025.08.01] Inference code is released.
 - [2025.08.01] This repo is created.
 
