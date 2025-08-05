@@ -1,0 +1,20 @@
+peft==0.13.2
+wandb
+datasets
+omegaconf
+accelerate
+bitsandbytes
+pytorch_lightning
+jsonlines
+deepspeed==0.14.4
+decord
+pillow
+imageio
+imageio-ffmpeg
+transformers==4.42.4
+scikit-image
+mkinit
+addict
+yapf
+easyocr
+-e .
