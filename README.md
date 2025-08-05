@@ -23,8 +23,6 @@
 <a href='#' target='_blank'>Paper (<txt style='color:red;'>Coming soon!</txt>)</a> | 
 <a href='https://csbhr.github.io/projects/vivid-vr/' target='_blank'>Project Page</a>
 
-<br>
-<br>  
 
 <div style="width: 100%; text-align: center; margin:auto;">
     <img style="width:100%" src="assets/teaser.png">
