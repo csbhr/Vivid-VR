@@ -20,21 +20,19 @@
     * Corresponding author
 </div>
 
-
-<br>
 <strong>
 <a href='#' target='_blank'>Paper (<txt style='color:red;'>Coming soon!</txt>)</a> | 
-<a href='https://csbhr.github.io/projects/vivid-vr/' target='_blank'>Project Page</a> | 
-<a href='https://github.com/csbhr/Vivid-VR/issues' target='_blank'>Discussion</a>
+<a href='https://csbhr.github.io/projects/vivid-vr/' target='_blank'>Project Page</a>
 </strong>
 
 <br>
+<br>  
 
 <div style="width: 100%; text-align: center; margin:auto;">
     <img style="width:100%" src="assets/teaser.png">
 </div>
 
-For more visual results, go checkout our <a href="[##](https://csbhr.github.io/projects/vivid-vr/)" target="_blank">[project page]</a>
+For more visual results, go checkout our <a href="https://csbhr.github.io/projects/vivid-vr/" target="_blank">[project page]</a>
 
 ---
 </div>
