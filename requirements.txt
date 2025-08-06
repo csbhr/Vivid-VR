@@ -16,5 +16,4 @@ scikit-image
 mkinit
 addict
 yapf
-easyocr
 -e .
