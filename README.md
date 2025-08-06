@@ -132,7 +132,7 @@ python VRDiT/inference.py \
 
 
 ## 📄 License
-- diffusers is distributed under the terms of the [Apache License 2.0](https://github.com/huggingface/diffusers/blob/main/LICENSE).
+- This repo is built based on [diffusers v0.31.0](https://github.com/huggingface/diffusers), which is distributed under the terms of the [Apache License 2.0](https://github.com/huggingface/diffusers/blob/main/LICENSE).
 - CogVideoX1.5-5B models are distributed under the terms of the [CogVideoX License](https://huggingface.co/zai-org/CogVideoX1.5-5B/blob/main/LICENSE).
 - cogvlm2-llama3-caption models are distributed under the terms of the [CogVLM2 License](https://modelscope.cn/models/ZhipuAI/cogvlm2-video-llama3-base/file/view/master?fileName=LICENSE&status=0) and [LLAMA3 License](https://modelscope.cn/models/ZhipuAI/cogvlm2-video-llama3-base/file/view/master?fileName=LLAMA3_LICENSE&status=0).
 - Real-ESRGAN models are distributed under the terms of the [BSD 3-Clause License](https://github.com/xinntao/Real-ESRGAN/blob/master/LICENSE).
