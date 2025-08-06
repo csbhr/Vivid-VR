@@ -6,11 +6,11 @@
 </h1>
 
 <div>
-    <a href='https://csbhr.github.io/' target='_blank'>Haoran Bai</a>&emsp;
-    <a href='https://github.com/chenxx89' target='_blank'>Xiaoxu Chen</a>&emsp;
-    <a href='https://ieeexplore.ieee.org/author/37088928879' target='_blank'>Canqian Yang</a>&emsp;
-    <a href='https://github.com/HeZongyao' target='_blank'>Zongyao He</a>&emsp;
-    <a href='https://scholar.google.com/citations?user=brmDxnsAAAAJ&hl=zh-CN' target='_blank'>Sibin Deng</a>&emsp;
+    <a href='https://csbhr.github.io/' target='_blank'>Haoran Bai</a>,&emsp;
+    <a href='https://github.com/chenxx89' target='_blank'>Xiaoxu Chen</a>,&emsp;
+    <a href='https://ieeexplore.ieee.org/author/37088928879' target='_blank'>Canqian Yang</a>,&emsp;
+    <a href='https://github.com/HeZongyao' target='_blank'>Zongyao He</a>,&emsp;
+    <a href='https://scholar.google.com/citations?user=brmDxnsAAAAJ&hl=zh-CN' target='_blank'>Sibin Deng</a>,&emsp;
     <a href='https://scholar.google.com/citations?user=NpTmcKEAAAAJ&hl=en' target='_blank'>Ying Chen<sup>∗</sup></a>
 </div>
 <div>
