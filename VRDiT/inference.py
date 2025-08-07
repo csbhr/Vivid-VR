@@ -41,7 +41,7 @@ def main():
 
     args.vividvr_ckpt_path = os.path.join(args.ckpt_dir, 'Vivid-VR')
     if args.textfix:
-        args.easyocr_ckpt_path = os.path.join(args.ckpt_dir, 'easyocr'),
+        args.easyocr_ckpt_path = os.path.join(args.ckpt_dir, 'easyocr')
         args.realesrgan_ckpt_path = os.path.join(args.ckpt_dir, 'RealESRGAN/RealESRGAN_x2plus.pth')
 
     os.makedirs(args.output_dir, exist_ok=True)
