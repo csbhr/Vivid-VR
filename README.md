@@ -70,6 +70,8 @@ For more quantitative results and visual results, go checkout our <a href="https
 
    - [**Required**] Download CogVideoX1.5-5B checkpoints from [[huggingface]](https://huggingface.co/zai-org/CogVideoX1.5-5B).
    - [**Required**] Download cogvlm2-llama3-caption checkpoints from [[huggingface]](https://huggingface.co/zai-org/cogvlm2-llama3-caption).
+       - Please replace 'modeling_cogvlm.py' in the downloaded cogvlm2-llama3-caption directory with [`./VRDiT/cogvlm2-llama3-caption
+/modeling_cogvlm.py`](VRDiT/cogvlm2-llama3-caption/modeling_cogvlm.py) to remove the dependency on [pytorchvideo](https://github.com/facebookresearch/pytorchvideo).
    - [**Required**] Download Vivid-VR checkpoints from [[huggingface]](https://huggingface.co/csbhr/Vivid-VR).
    - [**Optional, for text fix**] Download easyocr checkpoints [[english_g2]](https://github.com/JaidedAI/EasyOCR/releases/download/v1.3/english_g2.zip) [[zh_sim_g2]](https://github.com/JaidedAI/EasyOCR/releases/download/v1.3/zh_sim_g2.zip) [[craft_mlt_25k]](https://github.com/JaidedAI/EasyOCR/releases/download/pre-v1.1.6/craft_mlt_25k.zip).
    - [**Optional, for text fix**] Download Real-ESRGAN checkpoints [[RealESRGAN_x2plus]](https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_x2plus.pth).
