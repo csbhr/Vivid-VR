@@ -2,7 +2,7 @@
 
 <h1>
     Vivid-VR:<br> 
-    Distilling Concepts from Diffusion Transformer for Photorealistic Video Restoration
+    Distilling Concepts from Text-to-Video Diffusion Transformer for Photorealistic Video Restoration
 </h1>
 
 <div>
