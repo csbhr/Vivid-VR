@@ -19,7 +19,7 @@
     * Corresponding author
 </div>
 
-<a href='#' target='_blank'>Paper (<span style='color:red;'>Coming soon!</span>)</a> | 
+<a href='https://arxiv.org/abs/2508.14483' target='_blank'>Paper</a> | 
 <a href='https://csbhr.github.io/projects/vivid-vr/' target='_blank'>Project Page</a>
 
 
@@ -27,13 +27,14 @@
     <img style="width:100%" src="assets/teaser.png">
 </div>
 
-For more quantitative results and visual results, go checkout our <a href="https://csbhr.github.io/projects/vivid-vr/" target="_blank">[project page]</a>
+For more visual results, go checkout our <a href="https://csbhr.github.io/projects/vivid-vr/" target="_blank">[project page]</a>
 
 ---
 </div>
 
 
 ## 🔥 Update
+- [2025.08.21] Paper is released at [[link]](https://arxiv.org/abs/2508.14483).
 - [2025.08.06] UGC50 and AIGC50 testsets are made publicly available from [[link]](https://huggingface.co/csbhr/Vivid-VR/blob/main/testset.zip).
 - [2025.08.05] Inference code is released.
 - [2025.08.05] This repo is created.
@@ -123,11 +124,12 @@ python VRDiT/inference.py \
    If you find our repo useful for your research, please consider citing it:
 
    ```bibtex
-   @misc{bai2025vividvr,
+   @article{bai2025vividvr,
       title={Vivid-VR: Distilling Concepts from Diffusion Transformer for Photorealistic Video Restoration}, 
-      author={Haoran Bai and Xiaoxu Chen and Canqian Yang and Zongyao He and Sibin Deng and Ying Chen},
+      author={Bai, Haoran and Chen, Xiaoxu and Yang, Canqian and He, Zongyao and Deng, Sibin and Chen, Ying},
+      journal={arXiv preprint arXiv:2508.14483},
       year={2025},
-      url={https://github.com/csbhr/Vivid-VR}
+      url={https://arxiv.org/abs/2508.14483}
     }
    ```
 
