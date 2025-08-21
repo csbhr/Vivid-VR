@@ -125,7 +125,7 @@ python VRDiT/inference.py \
 
    ```bibtex
    @article{bai2025vividvr,
-      title={Vivid-VR: Distilling Concepts from Diffusion Transformer for Photorealistic Video Restoration}, 
+      title={Vivid-VR: Distilling Concepts from Text-to-Video Diffusion Transformer for Photorealistic Video Restoration}, 
       author={Bai, Haoran and Chen, Xiaoxu and Yang, Canqian and He, Zongyao and Deng, Sibin and Chen, Ying},
       journal={arXiv preprint arXiv:2508.14483},
       year={2025},
