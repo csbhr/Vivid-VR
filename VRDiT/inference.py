@@ -17,7 +17,6 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname( __file__ ), '../')
 
 from VRDiT.cogvlm2 import CogVLM2_Captioner
 from VRDiT.colorfix import adaptive_instance_normalization
-from VRDiT.textfix import TextFixer
 from VRDiT.utils import VALID_IMAGE_EXTENSIONS, VALID_VIDEO_EXTENSIONS, free_memory, load_video, export_to_video, prepare_validation_prompts
 
 
@@ -118,6 +117,7 @@ def main():
 
     # textfix
     if args.textfix:
+        from VRDiT.textfix import TextFixer
         text_fixer = TextFixer(easyocr_model_path=args.easyocr_ckpt_path, enhancer_model_path=args.realesrgan_ckpt_path)
 
     # read input videos
