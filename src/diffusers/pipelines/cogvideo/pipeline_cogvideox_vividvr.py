@@ -300,7 +300,6 @@ class CogVideoXVividVRControlNetPipeline(DiffusionPipeline, CogVideoXLoraLoaderM
         device: Optional[torch.device] = None,
         generator: Optional[torch.Generator] = None,
         control_latents: Optional[torch.Tensor] = None,
-        timestep: Optional[torch.Tensor] = None,
     ):
         if isinstance(generator, list) and len(generator) != batch_size:
             raise ValueError(
@@ -497,158 +496,90 @@ class CogVideoXVividVRControlNetPipeline(DiffusionPipeline, CogVideoXLoraLoaderM
         tile_size: int = 128,
         tile_stride: int = 64,
     ) -> Union[CogVideoXPipelineOutput, Tuple]:
-
-        height = height or self.transformer.config.sample_size * self.vae_scale_factor_spatial
-        width = width or self.transformer.config.sample_size * self.vae_scale_factor_spatial
-
-        # 1. Check inputs. Raise error if not correct
-        self.check_inputs(
+        
+        # 1. Prepare latents, prompt_embeds and some denoising arguments
+        pre_denoise_return = self.pre_denoise_process(
             control_video=control_video,
             prompt=prompt,
+            negative_prompt=negative_prompt,
             height=height,
             width=width,
-            negative_prompt=negative_prompt,
-            callback_on_step_end_tensor_inputs=callback_on_step_end_tensor_inputs,
+            guidance_scale=guidance_scale,
+            num_videos_per_prompt=num_videos_per_prompt,
+            generator=generator,
             control_latents=control_latents,
             prompt_embeds=prompt_embeds,
             negative_prompt_embeds=negative_prompt_embeds,
-            enable_spatial_tiling=enable_spatial_tiling,
+            callback_on_step_end_tensor_inputs=callback_on_step_end_tensor_inputs,
+            max_sequence_length=max_sequence_length,
+            enable_spatial_tiling=enable_spatial_tiling
         )
+        latents = pre_denoise_return["latents"]
+        control_latents = pre_denoise_return["control_latents"]
+        prompt_embeds = pre_denoise_return["prompt_embeds"]
+        negative_prompt_embeds = pre_denoise_return["negative_prompt_embeds"]
+        do_classifier_free_guidance = pre_denoise_return["do_classifier_free_guidance"]
+        num_latent_padding_frames = pre_denoise_return["num_latent_padding_frames"]
+        height = pre_denoise_return["height"]
+        width = pre_denoise_return["width"]
+        ori_height = pre_denoise_return["ori_height"]
+        ori_width = pre_denoise_return["ori_width"]
+
         self._guidance_scale = guidance_scale
         self._attention_kwargs = attention_kwargs
         self._interrupt = False
-
-        # 2. Default call parameters
-        if prompt is not None and isinstance(prompt, str):
-            batch_size = 1
-        elif prompt is not None and isinstance(prompt, list):
-            batch_size = len(prompt)
-        else:
-            batch_size = prompt_embeds.shape[0]
-
-        if enable_spatial_tiling:
-            # [TODO] multiple prompts supporting
-            num_videos_per_prompt = 1
-            batch_size = 1
-
         device = self._execution_device
 
-        # here `guidance_scale` is defined analog to the guidance weight `w` of equation (2)
-        # of the Imagen paper: https://arxiv.org/pdf/2205.11487.pdf . `guidance_scale = 1`
-        # corresponds to doing no classifier free guidance.
-        do_classifier_free_guidance = guidance_scale > 1.0
-
-        # 3. Encode input prompt
-        prompt_embeds, negative_prompt_embeds = self.encode_prompt(
-            prompt,
-            negative_prompt,
-            do_classifier_free_guidance,
-            num_videos_per_prompt=num_videos_per_prompt,
-            prompt_embeds=prompt_embeds,
-            negative_prompt_embeds=negative_prompt_embeds,
-            max_sequence_length=max_sequence_length,
-            device=device,
-        )
-
-        # 4. Prepare timesteps
+        # 2. Prepare timesteps
         timesteps, num_inference_steps = retrieve_timesteps(self.scheduler, num_inference_steps, device, timesteps)
         self._num_timesteps = len(timesteps)
 
-        # 5. Prepare noisy latents and control latents
-        if control_latents is None:
-            # [B, T, C, H, W] -> [B, C, T, H, W]
-            ori_height, ori_width = control_video.shape[-2:]
-            control_video = self.video_processor.preprocess_video(control_video, height=height, width=width)
-            control_video = control_video.to(device=device, dtype=prompt_embeds.dtype)
-
-        # [TODO] check here
-        latent_channels = 16  # self.transformer.config.in_channels
-        latents, control_latents, num_latent_padding_frames = self.prepare_latents(
-            control_video=control_video,
-            batch_size=batch_size * num_videos_per_prompt,
-            num_channels_latents=latent_channels,
-            height=height,
-            width=width,
-            dtype=prompt_embeds.dtype,
-            device=device,
-            generator=generator,
-            control_latents=control_latents,
-            timestep=timesteps,
-        )
-
-        # 6. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline
+        # 3. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline
         extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
 
-        # 8. Create ofs embeds if required
+        # 4. Create ofs embeds if required
         ofs_emb = None if self.transformer.config.ofs_embed_dim is None else latents.new_full((1,), fill_value=2.0)
 
-        # 8. Denoising loop
+        # 5. Denoising loop
         num_warmup_steps = max(len(timesteps) - num_inference_steps * self.scheduler.order, 0)
-
-        tiling_infos = list(prepare_tiling_infos_generator(
-            latents=latents,
-            enable_spatial_tiling=enable_spatial_tiling,
-            enable_temporal_tiling=False,
-            tile_size=tile_size,
-            tile_stride=tile_stride,
-        ))
-
+        old_pred_original_sample = None
         with self.progress_bar(total=num_inference_steps) as progress_bar:
-            # for DPM-solver++
-            old_pred_original_sample = None
             for i, t in enumerate(timesteps):
                 if self.interrupt:
                     continue
 
                 print(f'Step {i}, Latent shape {latents.shape}')
-
-                latents_meshgrid = torch.zeros_like(latents)
-                old_pred_original_sample_meshgrid = torch.zeros_like(latents)
-                weights_meshgrid = torch.zeros_like(latents)
-
-                for tile_index, (tile_slice, tile_weights) in enumerate(tiling_infos):
-                    print(f'TileIndex {tile_index}, Slice {tile_slice}')
-                    last_time = time.time()
-                    prompt_slice = slice(tile_index, tile_index + 1)
-                    
-                    tile_latents, tile_old_pred_original_sample = self.denoise_step(
-                        timestep_index=i,
-                        latents=latents[tile_slice],
-                        control_latents=control_latents[tile_slice],
-                        prompt_embeds=prompt_embeds[prompt_slice],
-                        negative_prompt_embeds=negative_prompt_embeds[prompt_slice],
-                        timesteps=timesteps,
-                        ofs_emb=ofs_emb,
-                        old_pred_original_sample=old_pred_original_sample[tile_slice] if old_pred_original_sample is not None else None,
-                        use_dynamic_cfg=use_dynamic_cfg,
-                        guidance_scale=guidance_scale,
-                        num_inference_steps=num_inference_steps,
-                        do_classifier_free_guidance=do_classifier_free_guidance,
-                        attention_kwargs=attention_kwargs,
-                        extra_step_kwargs=extra_step_kwargs
-                    )
-
-                    latents_meshgrid[tile_slice] += tile_latents * tile_weights
-                    old_pred_original_sample_meshgrid[tile_slice] += tile_old_pred_original_sample * tile_weights
-                    weights_meshgrid[tile_slice] += tile_weights
-                    print(f"TileProcessDuration: {time.time() - last_time}")
-
-                latents = latents_meshgrid / weights_meshgrid
-                old_pred_original_sample = old_pred_original_sample_meshgrid / weights_meshgrid
+                latents, old_pred_original_sample = self.denoise_process(
+                    latents=latents,
+                    old_pred_original_sample=old_pred_original_sample,
+                    control_latents=control_latents,
+                    prompt_embeds=prompt_embeds,
+                    negative_prompt_embeds=negative_prompt_embeds,
+                    ofs_emb=ofs_emb,
+                    timesteps=timesteps,
+                    timestep_index=i,
+                    num_inference_steps=num_inference_steps,
+                    guidance_scale=guidance_scale,
+                    use_dynamic_cfg=use_dynamic_cfg,
+                    do_classifier_free_guidance=do_classifier_free_guidance,
+                    extra_step_kwargs=extra_step_kwargs,
+                    attention_kwargs=attention_kwargs,
+                    enable_spatial_tiling=enable_spatial_tiling,
+                    tile_size=tile_size,
+                    tile_stride=tile_stride
+                )
 
                 if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
                     progress_bar.update()
-
-        if not output_type == "latent":
-            # Discard any padding frames that were added for CogVideoX 1.5
-            if num_latent_padding_frames > 0:
-                latents = latents[:, num_latent_padding_frames:]
-            video = self.decode_latents(latents)
-            video = [F.interpolate(i.permute(1, 0, 2, 3), size=(ori_height, ori_width), mode='bilinear') for i in video]
-            video = torch.stack(video, dim=0).permute(0, 2, 1, 3, 4)
-            video = self.video_processor.postprocess_video(video=video, output_type=output_type)
-        else:
-            video = latents
+        
+        # 6. VAE decoding
+        video = self.post_denoise_process(
+            latents=latents,
+            num_latent_padding_frames=num_latent_padding_frames,
+            ori_height=ori_height,
+            ori_width=ori_width,
+            output_type=output_type,
+        )
 
         # Offload all models
         self.maybe_free_model_hooks()
@@ -749,3 +680,191 @@ class CogVideoXVividVRControlNetPipeline(DiffusionPipeline, CogVideoXLoraLoaderM
         last_time = time.time()
 
         return latents, old_pred_original_sample
+    
+    @torch.no_grad()
+    def pre_denoise_process(
+        self,
+        control_video: List[Image.Image] = None,
+        prompt: Optional[Union[str, List[str]]] = None,
+        negative_prompt: Optional[Union[str, List[str]]] = None,
+        height: Optional[int] = None,
+        width: Optional[int] = None,
+        guidance_scale: float = 6,
+        num_videos_per_prompt: int = 1,
+        generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None,
+        control_latents: Optional[torch.FloatTensor] = None,
+        prompt_embeds: Optional[torch.FloatTensor] = None,
+        negative_prompt_embeds: Optional[torch.FloatTensor] = None,
+        callback_on_step_end_tensor_inputs: List[str] = ["latents"],
+        max_sequence_length: int = 226,
+        enable_spatial_tiling: bool = False
+    ):
+
+        height = height or self.transformer.config.sample_size * self.vae_scale_factor_spatial
+        width = width or self.transformer.config.sample_size * self.vae_scale_factor_spatial
+
+        # 1. Check inputs. Raise error if not correct
+        self.check_inputs(
+            control_video=control_video,
+            prompt=prompt,
+            height=height,
+            width=width,
+            negative_prompt=negative_prompt,
+            callback_on_step_end_tensor_inputs=callback_on_step_end_tensor_inputs,
+            control_latents=control_latents,
+            prompt_embeds=prompt_embeds,
+            negative_prompt_embeds=negative_prompt_embeds,
+            enable_spatial_tiling=enable_spatial_tiling,
+        )
+
+        # 2. Default call parameters
+        if prompt is not None and isinstance(prompt, str):
+            batch_size = 1
+        elif prompt is not None and isinstance(prompt, list):
+            batch_size = len(prompt)
+        else:
+            batch_size = prompt_embeds.shape[0]
+
+        if enable_spatial_tiling:
+            # [TODO] multiple prompts supporting
+            num_videos_per_prompt = 1
+            batch_size = 1
+
+        device = self._execution_device
+
+        # here `guidance_scale` is defined analog to the guidance weight `w` of equation (2)
+        # of the Imagen paper: https://arxiv.org/pdf/2205.11487.pdf . `guidance_scale = 1`
+        # corresponds to doing no classifier free guidance.
+        do_classifier_free_guidance = guidance_scale > 1.0
+
+        # 3. Encode input prompt
+        prompt_embeds, negative_prompt_embeds = self.encode_prompt(
+            prompt,
+            negative_prompt,
+            do_classifier_free_guidance,
+            num_videos_per_prompt=num_videos_per_prompt,
+            prompt_embeds=prompt_embeds,
+            negative_prompt_embeds=negative_prompt_embeds,
+            max_sequence_length=max_sequence_length,
+            device=device,
+        )
+
+        # 4. Prepare noisy latents and control latents
+        if control_latents is None:
+            # [B, T, C, H, W] -> [B, C, T, H, W]
+            ori_height, ori_width = control_video.shape[-2:]
+            control_video = self.video_processor.preprocess_video(control_video, height=height, width=width)
+            control_video = control_video.to(device=device, dtype=prompt_embeds.dtype)
+
+        # [TODO] check here
+        latent_channels = 16  # self.transformer.config.in_channels
+        latents, control_latents, num_latent_padding_frames = self.prepare_latents(
+            control_video=control_video,
+            batch_size=batch_size * num_videos_per_prompt,
+            num_channels_latents=latent_channels,
+            height=height,
+            width=width,
+            dtype=prompt_embeds.dtype,
+            device=device,
+            generator=generator,
+            control_latents=control_latents,
+        )
+
+        return {
+            "latents": latents,
+            "control_latents": control_latents,
+            "prompt_embeds": prompt_embeds,
+            "negative_prompt_embeds": negative_prompt_embeds,
+            "do_classifier_free_guidance": do_classifier_free_guidance,
+            "num_latent_padding_frames": num_latent_padding_frames,
+            "height": height,
+            "width": width,
+            "ori_height": ori_height,
+            "ori_width": ori_width
+        }
+
+    @torch.no_grad()
+    def denoise_process(
+        self,
+        latents,
+        old_pred_original_sample,
+        control_latents,
+        prompt_embeds,
+        negative_prompt_embeds,
+        ofs_emb,
+        timesteps,
+        timestep_index,
+        num_inference_steps: int = 50,
+        guidance_scale: float = 6,
+        use_dynamic_cfg: bool = False,
+        do_classifier_free_guidance: bool = False,
+        extra_step_kwargs: Optional[Dict[str, Any]] = None,
+        attention_kwargs: Optional[Dict[str, Any]] = None,
+        enable_spatial_tiling: bool = False,
+        tile_size: int = 128,
+        tile_stride: int = 64,
+    ):
+        tiling_infos = list(prepare_tiling_infos_generator(
+            latents=latents,
+            enable_spatial_tiling=enable_spatial_tiling,
+            enable_temporal_tiling=False,
+            tile_size=tile_size,
+            tile_stride=tile_stride,
+        ))
+
+        latents_meshgrid = torch.zeros_like(latents)
+        old_pred_original_sample_meshgrid = torch.zeros_like(latents)
+        weights_meshgrid = torch.zeros_like(latents)
+
+        for tile_index, (tile_slice, tile_weights) in enumerate(tiling_infos):
+            print(f'TileIndex {tile_index}, Slice {tile_slice}')
+            last_time = time.time()
+            prompt_slice = slice(tile_index, tile_index + 1)
+            
+            tile_latents, tile_old_pred_original_sample = self.denoise_step(
+                timestep_index=timestep_index,
+                latents=latents[tile_slice],
+                control_latents=control_latents[tile_slice],
+                prompt_embeds=prompt_embeds[prompt_slice],
+                negative_prompt_embeds=negative_prompt_embeds[prompt_slice],
+                timesteps=timesteps,
+                ofs_emb=ofs_emb,
+                old_pred_original_sample=old_pred_original_sample[tile_slice] if old_pred_original_sample is not None else None,
+                use_dynamic_cfg=use_dynamic_cfg,
+                guidance_scale=guidance_scale,
+                num_inference_steps=num_inference_steps,
+                do_classifier_free_guidance=do_classifier_free_guidance,
+                attention_kwargs=attention_kwargs,
+                extra_step_kwargs=extra_step_kwargs
+            )
+
+            latents_meshgrid[tile_slice] += tile_latents * tile_weights
+            old_pred_original_sample_meshgrid[tile_slice] += tile_old_pred_original_sample * tile_weights
+            weights_meshgrid[tile_slice] += tile_weights
+            print(f"TileProcessDuration: {time.time() - last_time}")
+
+        latents = latents_meshgrid / weights_meshgrid
+        old_pred_original_sample = old_pred_original_sample_meshgrid / weights_meshgrid
+        
+        return latents, old_pred_original_sample
+    
+    @torch.no_grad()
+    def post_denoise_process(
+        self,
+        latents: torch.Tensor,
+        num_latent_padding_frames: int,
+        ori_height: int,
+        ori_width: int,
+        output_type: str = "pil",
+    ):
+        if not output_type == "latent":
+            # Discard any padding frames that were added for CogVideoX 1.5
+            if num_latent_padding_frames > 0:
+                latents = latents[:, num_latent_padding_frames:]
+            video = self.decode_latents(latents)
+            video = [F.interpolate(i.permute(1, 0, 2, 3), size=(ori_height, ori_width), mode='bilinear') for i in video]
+            video = torch.stack(video, dim=0).permute(0, 2, 1, 3, 4)
+            video = self.video_processor.postprocess_video(video=video, output_type=output_type)
+        else:
+            video = latents
+        return video
