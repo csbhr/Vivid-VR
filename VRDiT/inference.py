@@ -158,51 +158,8 @@ def infer_split_clips(
     # 4. Create ofs embeds if required
     ofs_emb = None if pipe.transformer.config.ofs_embed_dim is None else clips_info_cache[0]['latents'].new_full((1,), fill_value=2.0)
 
-    # 5. Prepare temporal latent fusion
-    r"""[NOTE] The Strategy of Temporal Latents Fusion.
-
-    Due to the characteristic of the VAE and overlapping setting, the temporal latents fusion would be somehow tricky.
-
-    Example with `num_tile_frames` = 41 and `num_overlap_frames` = 33 (so `num_temporal_ov_latents` = 8)
-
-        - Video clip of 41 frames will be encoded (by VAE) into 1 + (41 - 1) // 4 = 11 latents, where the first latent represents the
-        first frame only. CogVideoX1.5 will pad a replicated first latent, so finally the number of latents is 12. (the first 2 latents,
-        denoted as LA, are replicated and representint only the first frame, while the last 10 latents represent 4 continuous frames each)
-
-            - For the 1st clip (frame 0-40), its latent-frame mapping is:
-            | Latent | LA | LA | L1    | L2    | L3    | L4    | L5    | L6    | L7    | L8    | L9    | L10   |
-            | Frames | 0  | 0  | 01-04 | 05-08 | 09-12 | 13-16 | 17-20 | 21-24 | 25-28 | 29-32 | 33-36 | 37-40 |
-            The valid latents of the 1st clip are [L1-L6].
-
-            - For the 2nd clip (frame 8-48), its latent-frame mapping is:
-            | Latent | LA | LA | L3    | L4    | L5    | L6    | L7    | L8    | L9    | L10   | L11   | L12   |
-            | Frames | 8  | 8  | 09-12 | 13-16 | 17-20 | 21-24 | 25-28 | 29-32 | 33-36 | 37-40 | 41-44 | 45-48 |
-            Under the exclusive-overlapped strategy,
-            a. we first exclude the first 2 latents,
-            b. then we find that [L3-L10] are overlapped with the 1st clip, and [L5-L12] are overlapped with the 3rd clip,
-            c. the 2nd clip should contribute a half of the overlapped latents to the final results,
-            d. in this way, the valid latents of the 2nd clip are [L7-L8].
-
-            - For the 3rd clip (frame 16-52, should pad to 16-56), its latent-frame mapping is:
-            | Latent | LA | LA | L5    | L6    | L7    | L8    | L9    | L10   | L11   | L12   | L13   | L14   |
-            | Frames | 16 | 16 | 17-20 | 21-24 | 25-28 | 29-32 | 33-36 | 37-40 | 41-44 | 45-48 | 49-52 | 53-56 |
-            The valid latents of the 1st clip are [L9-L14].
-
-        - As the latent structure shown above, we can find that the overlapped latents fusion should
-        exclude the first 2 latents in order to align frame semantics across clips. According to the valid latents,
-        we conduct exclusive overlapped latents fusion as below:
-            - for the 1st clip, we pick LA, L1-L6 from itself, and L7-L8 from the 2nd clip, and L9-L10 from the 3rd clip.
-            - for the 2nd clip, we pick LA, L7-L8 from itself, and L3-L6 from the 1st clip, and L9-L12 from the 3rd clip.
-            - for the 3rd clip, we pick LA, L9-L14 from itself, and L5-L6 from the 1st clip, and L6-L8 from the 2nd clip.
-
-        - To implement above strategy, we prepare a mapping between the clip ids and the valid latents ids. For each clip,
-        we update its latents each denoising step by picking latents using latent id according to the mapping.
-    """
-
-    r"""[NOTE] Due to the characteristic of the VAE, the first 2 latents (for 8k+1 padding mode) represent only the first
-    frame of the video clip (instead of representing 4 continuous frames). We should exclude these latents from merging.
-    """
-    non_fstfr_latents_start_idx = 2
+    # 5. Prepare temporal latent merging info
+    non_fstfr_latents_start_idx = 2  # for 8k+1 padding mode, the first 2 latents represent only the first frame, they are excluded when merging
     clip_id_to_latent_id_map = {}
     valid_latent_id_to_clip_id_map = {}
     for idx in range(num_clips):
