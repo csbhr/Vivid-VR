@@ -12,12 +12,299 @@ from tqdm import tqdm
 from PIL import Image
 from transformers import T5EncoderModel
 from diffusers import CogVideoXDPMScheduler, AutoencoderKLCogVideoX, CogVideoXVividVRTransformer3DModel, CogVideoXVividVRControlNetModel, CogVideoXVividVRControlNetPipeline
+from diffusers.pipelines.cogvideo.pipeline_cogvideox_vividvr import retrieve_timesteps
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname( __file__ ), '../')))
 
 from VRDiT.cogvlm2 import CogVLM2_Captioner
 from VRDiT.colorfix import adaptive_instance_normalization
 from VRDiT.utils import VALID_IMAGE_EXTENSIONS, VALID_VIDEO_EXTENSIONS, free_memory, load_video, export_to_video, prepare_validation_prompts
+
+
+def infer_whole_video(
+        args,
+        captioner_model,
+        pipe,
+        info,
+        control_video,
+        gen_height,
+        gen_width,
+        vae_scale_factor_spatial
+    ):
+    # Padding to make the number of frames pad_type
+    num_padding_frames = 0
+    if (control_video.size(0) - 1) % 8 != 0:
+        num_padding_frames = 8 - (control_video.size(0) - 1) % 8
+        control_video = torch.cat([control_video, control_video[-1:].repeat(num_padding_frames, 1, 1, 1)], dim=0)
+
+    pipeline_args = {
+        "control_video": control_video,
+        "guidance_scale": args.guidance_scale,
+        "use_dynamic_cfg": args.use_dynamic_cfg,
+        "height": gen_height,
+        "width": gen_width,
+        "num_inference_steps": args.num_inference_steps,
+        "enable_spatial_tiling": True,
+        "tile_size": args.tile_size,
+        "tile_stride": args.tile_size // 2,
+    }
+
+    # prepare prompt
+    video_for_caption = F.interpolate(control_video, size=(gen_height, gen_width), mode='bicubic')
+    prompt_list, negative_prompt_list = prepare_validation_prompts(
+        video_for_caption=video_for_caption,
+        video_fps=info['fps'],
+        captioner_model=captioner_model,
+        tile_size=args.tile_size * vae_scale_factor_spatial,
+        tile_stride=(args.tile_size // 2) * vae_scale_factor_spatial,
+        device=args.device
+    )
+    pipeline_args['prompt'] = prompt_list
+    pipeline_args['negative_prompt'] = negative_prompt_list
+
+    # run inference
+    video = pipe(
+        **pipeline_args,
+        generator=torch.Generator(device=args.device).manual_seed(args.seed),
+        output_type="np"  # numpy [T, H, W, C]
+    ).frames[0]
+
+    if video.shape[0] % 4 == 0:
+        video = video[3:]
+    if num_padding_frames > 0:
+        video = video[:-num_padding_frames]
+
+    return video
+
+
+def infer_split_clips(
+        args,
+        captioner_model,
+        pipe,
+        info,
+        control_video,
+        gen_height,
+        gen_width,
+        vae_scale_factor_spatial,
+        vae_scale_factor_temporal
+    ):
+    assert args.num_temporal_process_frames % 8 == 1, "the num_temporal_process_frames should match 8k+1"
+
+    generator = torch.Generator(device=args.device).manual_seed(args.seed)
+
+    num_temporal_process_frames = args.num_temporal_process_frames
+    num_temporal_overlapped_frames = (num_temporal_process_frames - 1) // 2 + 1
+    temporal_frame_stride = num_temporal_process_frames - num_temporal_overlapped_frames
+
+    num_temporal_ov_latents = (num_temporal_overlapped_frames - 1) // vae_scale_factor_temporal
+    temporal_latent_stride = ((num_temporal_process_frames - 1) // vae_scale_factor_temporal) - num_temporal_ov_latents
+
+    num_frames = control_video.size(0)
+    num_clips = (num_frames - num_temporal_process_frames) // temporal_frame_stride + 1
+    if (num_clips - 1) * temporal_frame_stride + num_temporal_process_frames < num_frames:
+        num_clips += 1
+    num_clips = max(1, num_clips)
+
+    # 1. Cache clips' latents, prompt_embeds and some denoising arguments
+    clips_info_cache = {}
+    for idx in range(num_clips):
+        idx_begin = idx * temporal_frame_stride
+        idx_end = min(idx_begin + num_temporal_process_frames, num_frames)
+        clip_control_video = control_video[idx_begin:idx_end]
+
+        # Padding to make the number of frames pad_type
+        num_padding_frames = 0
+        if (clip_control_video.size(0) - 1) % 8 != 0:
+            num_padding_frames = 8 - (clip_control_video.size(0) - 1) % 8
+            clip_control_video = torch.cat([clip_control_video, clip_control_video[-1:].repeat(num_padding_frames, 1, 1, 1)], dim=0)
+
+        # prepare prompt
+        video_for_caption = F.interpolate(clip_control_video, size=(gen_height, gen_width), mode='bicubic')
+        prompt_list, negative_prompt_list = prepare_validation_prompts(
+            video_for_caption=video_for_caption,
+            video_fps=info['fps'],
+            captioner_model=captioner_model,
+            tile_size=args.tile_size * vae_scale_factor_spatial,
+            tile_stride=(args.tile_size // 2) * vae_scale_factor_spatial,
+            device=args.device
+        )
+
+        # Prepare latents, prompt_embeds and some denoising arguments
+        clips_info_cache[idx] = pipe.pre_denoise_process(
+            control_video=clip_control_video,
+            prompt=prompt_list,
+            negative_prompt=negative_prompt_list,
+            height=gen_height,
+            width=gen_width,
+            guidance_scale=args.guidance_scale,
+            generator=generator,
+            enable_spatial_tiling=True
+        )
+        clips_info_cache[idx]['num_padding_frames'] = num_padding_frames
+        clips_info_cache[idx]['old_pred_original_sample'] = None
+    
+    pipe._guidance_scale = args.guidance_scale
+    pipe._attention_kwargs = None
+    pipe._interrupt = False
+    device = pipe._execution_device
+
+    # 2. Prepare timesteps
+    timesteps, num_inference_steps = retrieve_timesteps(pipe.scheduler, args.num_inference_steps, device, None)
+    pipe._num_timesteps = len(timesteps)
+
+    # 3. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline
+    extra_step_kwargs = pipe.prepare_extra_step_kwargs(generator, 0.0)
+
+    # 4. Create ofs embeds if required
+    ofs_emb = None if pipe.transformer.config.ofs_embed_dim is None else clips_info_cache[0]['latents'].new_full((1,), fill_value=2.0)
+
+    # 5. Prepare temporal latent fusion
+    r"""[NOTE] The Strategy of Temporal Latents Fusion.
+
+    Due to the characteristic of the VAE and overlapping setting, the temporal latents fusion would be somehow tricky.
+
+    Example with `num_tile_frames` = 41 and `num_overlap_frames` = 33 (so `num_temporal_ov_latents` = 8)
+
+        - Video clip of 41 frames will be encoded (by VAE) into 1 + (41 - 1) // 4 = 11 latents, where the first latent represents the
+        first frame only. CogVideoX1.5 will pad a replicated first latent, so finally the number of latents is 12. (the first 2 latents,
+        denoted as LA, are replicated and representint only the first frame, while the last 10 latents represent 4 continuous frames each)
+
+            - For the 1st clip (frame 0-40), its latent-frame mapping is:
+            | Latent | LA | LA | L1    | L2    | L3    | L4    | L5    | L6    | L7    | L8    | L9    | L10   |
+            | Frames | 0  | 0  | 01-04 | 05-08 | 09-12 | 13-16 | 17-20 | 21-24 | 25-28 | 29-32 | 33-36 | 37-40 |
+            The valid latents of the 1st clip are [L1-L6].
+
+            - For the 2nd clip (frame 8-48), its latent-frame mapping is:
+            | Latent | LA | LA | L3    | L4    | L5    | L6    | L7    | L8    | L9    | L10   | L11   | L12   |
+            | Frames | 8  | 8  | 09-12 | 13-16 | 17-20 | 21-24 | 25-28 | 29-32 | 33-36 | 37-40 | 41-44 | 45-48 |
+            Under the exclusive-overlapped strategy,
+            a. we first exclude the first 2 latents,
+            b. then we find that [L3-L10] are overlapped with the 1st clip, and [L5-L12] are overlapped with the 3rd clip,
+            c. the 2nd clip should contribute a half of the overlapped latents to the final results,
+            d. in this way, the valid latents of the 2nd clip are [L7-L8].
+
+            - For the 3rd clip (frame 16-52, should pad to 16-56), its latent-frame mapping is:
+            | Latent | LA | LA | L5    | L6    | L7    | L8    | L9    | L10   | L11   | L12   | L13   | L14   |
+            | Frames | 16 | 16 | 17-20 | 21-24 | 25-28 | 29-32 | 33-36 | 37-40 | 41-44 | 45-48 | 49-52 | 53-56 |
+            The valid latents of the 1st clip are [L9-L14].
+
+        - As the latent structure shown above, we can find that the overlapped latents fusion should
+        exclude the first 2 latents in order to align frame semantics across clips. According to the valid latents,
+        we conduct exclusive overlapped latents fusion as below:
+            - for the 1st clip, we pick LA, L1-L6 from itself, and L7-L8 from the 2nd clip, and L9-L10 from the 3rd clip.
+            - for the 2nd clip, we pick LA, L7-L8 from itself, and L3-L6 from the 1st clip, and L9-L12 from the 3rd clip.
+            - for the 3rd clip, we pick LA, L9-L14 from itself, and L5-L6 from the 1st clip, and L6-L8 from the 2nd clip.
+
+        - To implement above strategy, we prepare a mapping between the clip ids and the valid latents ids. For each clip,
+        we update its latents each denoising step by picking latents using latent id according to the mapping.
+    """
+
+    r"""[NOTE] Due to the characteristic of the VAE, the first 2 latents (for 8k+1 padding mode) represent only the first
+    frame of the video clip (instead of representing 4 continuous frames). We should exclude these latents from merging.
+    """
+    non_fstfr_latents_start_idx = 2
+    clip_id_to_latent_id_map = {}
+    valid_latent_id_to_clip_id_map = {}
+    for idx in range(num_clips):
+        clip_info = clips_info_cache[idx]
+        temporal_latent_length = clip_info['latents'].size(1) # get temporal length
+        latent_idx_begin = temporal_latent_stride * idx + 1
+        latent_idx_end = latent_idx_begin + (temporal_latent_length - non_fstfr_latents_start_idx)
+        clip_id_to_latent_id_map[idx] = (latent_idx_begin, latent_idx_end)
+
+        num_valid_latents = (latent_idx_end - latent_idx_begin) - num_temporal_ov_latents
+        if idx == 0 or idx == num_clips - 1:
+            num_valid_latents = (latent_idx_end - latent_idx_begin) - (num_temporal_ov_latents // 2)
+        valid_latend_idx_begin = latent_idx_begin + num_temporal_ov_latents // 2 * int(idx > 0)
+        valid_latend_idx_end = valid_latend_idx_begin + num_valid_latents
+        for latent_id in range(valid_latend_idx_begin, valid_latend_idx_end):
+            valid_latent_id_to_clip_id_map[latent_id] = idx
+    print(f"Clip Id - Latent Id Map: {clip_id_to_latent_id_map}")
+    print(f"Valid Latent Id - Clip Id Map: {valid_latent_id_to_clip_id_map}")
+
+    # 6. Denoising loop
+    for i, t in tqdm(enumerate(timesteps), desc=f"Denoising loop .."):
+        if pipe.interrupt:
+            continue
+
+        # denose clip latents
+        for idx in tqdm(range(num_clips), desc=f"Denoising temporal clips .."):
+            clip_info = clips_info_cache[idx]
+
+            latents, old_pred_original_sample = pipe.denoise_process(
+                latents=clip_info["latents"],
+                old_pred_original_sample=clip_info["old_pred_original_sample"],
+                control_latents=clip_info["control_latents"],
+                prompt_embeds=clip_info["prompt_embeds"],
+                negative_prompt_embeds=clip_info["negative_prompt_embeds"],
+                ofs_emb=ofs_emb,
+                timesteps=timesteps,
+                timestep_index=i,
+                num_inference_steps=num_inference_steps,
+                guidance_scale=args.guidance_scale,
+                use_dynamic_cfg=args.use_dynamic_cfg,
+                do_classifier_free_guidance=clip_info["do_classifier_free_guidance"],
+                extra_step_kwargs=extra_step_kwargs,
+                attention_kwargs=None,
+                enable_spatial_tiling=True,
+                tile_size=args.tile_size,
+                tile_stride=args.tile_size // 2
+            )
+
+            clip_info["latents"] = latents
+            clip_info["old_pred_original_sample"] = old_pred_original_sample
+            clips_info_cache[idx] = clip_info
+
+        # merge clip latents
+        for idx in tqdm(range(num_clips), desc=f"Merging temporal clips .."):
+            clip_info = clips_info_cache[idx]
+
+            # [B, T, C, H, W]
+            latents = clip_info["latents"]
+            old_pred_original_sample = clip_info["old_pred_original_sample"]
+
+            latent_id_range = clip_id_to_latent_id_map[idx]
+            latent_id_offset = latent_id_range[0] - non_fstfr_latents_start_idx
+            for latent_id in range(*latent_id_range):
+                target_clip_idx = valid_latent_id_to_clip_id_map[latent_id]
+                if target_clip_idx == idx: continue
+
+                target_clip_info = clips_info_cache[target_clip_idx]
+                target_clip_latent_id_offset = clip_id_to_latent_id_map[target_clip_idx][0] - non_fstfr_latents_start_idx
+
+                latents[:, latent_id - latent_id_offset, ...] = \
+                    target_clip_info['latents'][:, latent_id - target_clip_latent_id_offset, ...]
+                old_pred_original_sample[:, latent_id - latent_id_offset, ...] = \
+                    target_clip_info['old_pred_original_sample'][:, latent_id - target_clip_latent_id_offset, ...]
+            
+            clip_info["latents"] = latents
+            clip_info["old_pred_original_sample"] = old_pred_original_sample
+            clips_info_cache[idx] = clip_info
+    
+    # 7. VAE decoding
+    video_buffer = []
+    for idx in tqdm(range(num_clips), desc=f"VAE decoding temporal clips .."):
+        clip_info = clips_info_cache[idx]
+        video = pipe.post_denoise_process(
+            latents=clip_info["latents"],
+            num_latent_padding_frames=clip_info["num_latent_padding_frames"],
+            ori_height=clip_info["ori_height"],
+            ori_width=clip_info["ori_width"],
+            output_type="np",
+        )[0]
+        if video.shape[0] % 4 == 0:
+            video = video[3:]
+        if clip_info["num_padding_frames"] > 0:
+            video = video[:-clip_info["num_padding_frames"]]
+        
+        if idx > 0:
+            video = video[(num_temporal_overlapped_frames + 1) // 2:]
+        if idx < num_clips - 1:
+            video = video[:-(num_temporal_overlapped_frames // 2)]
+        video_buffer.append(video)
+    video = np.concatenate(video_buffer, axis=0)
+    
+    return video
 
 
 def main():
@@ -29,6 +316,7 @@ def main():
     parser.add_argument("--output_dir", type=str, default="./test_samples/outputs", help="Path to output videos directory.")
     parser.add_argument("--upscale", type=float, default=0., help='The upsample scale. Default upscale=0, short-size resized to 1024.')
     parser.add_argument('--tile_size', type=int, default=128)
+    parser.add_argument('--num_temporal_process_frames', type=int, default=121)
     parser.add_argument("--num_inference_steps", type=int, default=50)
     parser.add_argument("--guidance_scale", type=int, default=6)
     parser.add_argument("--use_dynamic_cfg", action="store_true", default=False)
@@ -115,6 +403,10 @@ def main():
         torch_dtype=torch.bfloat16,
     )
 
+    # enable cpu offload
+    pipe.enable_model_cpu_offload(device=args.device)  # faster, but use more GPU memory
+    # pipe.enable_sequential_cpu_offload(device=args.device)  # slower, but use less GPU memory
+
     # textfix
     if args.textfix:
         from VRDiT.textfix import TextFixer
@@ -178,55 +470,34 @@ def main():
             info['height'], info['width'] = control_video.size()[2], control_video.size()[3]
         print(f"Processing {info['path']} with shape {control_video.shape}.")
 
-        # Padding to make the number of frames pad_type
-        num_padding_frames = 0
-        if (control_video.size(0) - 1) % 8 != 0:
-            num_padding_frames = 8 - (control_video.size(0) - 1) % 8
-            control_video = torch.cat([control_video, control_video[-1:].repeat(num_padding_frames, 1, 1, 1)], dim=0)
-
         vae_scale_factor_spatial = 2 ** (len(vae.config.block_out_channels) - 1)
         gen_height = 8 * math.ceil(info['height'] / 8) if info['height'] < args.tile_size * vae_scale_factor_spatial else info['height']
         gen_width = 8 * math.ceil(info['width'] / 8) if info['width'] < args.tile_size * vae_scale_factor_spatial else info['width']
         print(f"Generate resolution {gen_height}x{gen_width} for {info['path']}.")
 
-        pipeline_args = {
-            "control_video": control_video,
-            "guidance_scale": args.guidance_scale,
-            "use_dynamic_cfg": args.use_dynamic_cfg,
-            "height": gen_height,
-            "width": gen_width,
-            "num_inference_steps": args.num_inference_steps,
-            "enable_spatial_tiling": True,
-            "tile_size": args.tile_size,
-            "tile_stride": args.tile_size // 2,
-        }
-
-        # prepare prompt
-        video_for_caption = F.interpolate(control_video, size=(gen_height, gen_width), mode='bicubic')
-        prompt_list, negative_prompt_list = prepare_validation_prompts(
-            video_for_caption=video_for_caption,
-            video_fps=info['fps'],
-            captioner_model=captioner_model,
-            tile_size=args.tile_size * vae_scale_factor_spatial,
-            tile_stride=(args.tile_size // 2) * vae_scale_factor_spatial,
-            device=args.device
-        )
-        pipeline_args['prompt'] = prompt_list
-        pipeline_args['negative_prompt'] = negative_prompt_list
-
-        # run inference
-        pipe.enable_model_cpu_offload(device=args.device)
-        video = pipe(
-            **pipeline_args,
-            generator=torch.Generator(device=args.device).manual_seed(args.seed),
-            output_type="np"  # numpy [T, H, W, C]
-        ).frames[0]
-
-        if video.shape[0] % 4 == 0:
-            video = video[3:]
-        if num_padding_frames > 0:
-            video = video[:-num_padding_frames]
-            control_video = control_video[:-num_padding_frames]
+        if control_video.size(0) > args.num_temporal_process_frames:
+            video = infer_split_clips(
+                args=args,
+                captioner_model=captioner_model,
+                pipe=pipe,
+                info=info,
+                control_video=control_video,
+                gen_height=gen_height,
+                gen_width=gen_width,
+                vae_scale_factor_spatial=vae_scale_factor_spatial,
+                vae_scale_factor_temporal=vae.config.temporal_compression_ratio
+            )
+        else:
+            video = infer_whole_video(
+                args=args,
+                captioner_model=captioner_model,
+                pipe=pipe,
+                info=info,
+                control_video=control_video,
+                gen_height=gen_height,
+                gen_width=gen_width,
+                vae_scale_factor_spatial=vae_scale_factor_spatial
+            )
         
         # colorfix
         samples = adaptive_instance_normalization(torch.from_numpy(video).permute(0, 3, 1, 2).to(args.device), control_video.to(args.device))
@@ -243,6 +514,9 @@ def main():
             os.makedirs(image_dir, exist_ok=True)
             for i in range(len(samples)):
                 Image.fromarray((samples[i] * 255).clip(0, 255).astype(np.uint8)).save(os.path.join(image_dir, f"{i:06d}.png"))
+
+        # print GPU memory usage
+        print(torch.cuda.memory_summary(abbreviated=False))
 
         del video, control_video, samples
         free_memory()
