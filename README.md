@@ -128,7 +128,7 @@ GPU memory usage:
 - For the arg "--num_temporal_process_frames", smaller values ​​require less GPU memory but increase inference time.
 
 Trade-off between fidelity and realism:
-- Using the arg "--restoration_guidance_scale" to enable restoration-guided sampling. Higher value yield more realistic results, while lower value preserve greater fidelity to the original input content. When the value is 1, restoration-guided sampling is disabled.
+- Using the arg "--restoration_guidance_scale" to enable restoration-guided sampling. Higher value yield more realistic results, while lower value preserve greater fidelity to the original input content. When the value is -1, restoration-guided sampling is disabled.
 
 ## 📧 Citation
 
