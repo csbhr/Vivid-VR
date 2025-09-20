@@ -47,6 +47,7 @@ def infer_whole_video(
         "enable_spatial_tiling": True,
         "tile_size": args.tile_size,
         "tile_stride": args.tile_size // 2,
+        "restoration_guidance_scale": args.restoration_guidance_scale,
     }
 
     # prepare prompt
@@ -205,7 +206,8 @@ def infer_split_clips(
                 attention_kwargs=None,
                 enable_spatial_tiling=True,
                 tile_size=args.tile_size,
-                tile_stride=args.tile_size // 2
+                tile_stride=args.tile_size // 2,
+                restoration_guidance_scale=args.restoration_guidance_scale
             )
 
             clip_info["latents"] = latents
@@ -276,6 +278,7 @@ def main():
     parser.add_argument('--num_temporal_process_frames', type=int, default=121)
     parser.add_argument("--num_inference_steps", type=int, default=50)
     parser.add_argument("--guidance_scale", type=int, default=6)
+    parser.add_argument("--restoration_guidance_scale", type=float, default=-1.0)
     parser.add_argument("--use_dynamic_cfg", action="store_true", default=False)
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--seed", type=int, default=42)
