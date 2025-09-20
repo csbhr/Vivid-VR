@@ -34,7 +34,8 @@ For more visual results, go checkout our <a href="https://csbhr.github.io/projec
 
 
 ## 🔥 Update
-- [2025.08.30] Support long video inference by aggregate sampling in the temporal dimension, using the arg ["--num_temporal_process_frames"](https://github.com/csbhr/Vivid-VR/blob/50421718473396922c27e460088a140a74887dfe/VRDiT/inference.py#L319).
+- [2025.09.20] Support restoration-guided sampling for the trade-off between fidelity and realism, using the arg "--restoration_guidance_scale".
+- [2025.08.30] Support long video inference by aggregate sampling in the temporal dimension, using the arg "--num_temporal_process_frames".
 - [2025.08.26] **Correction:** Due to inference-time cropping (w.r.t. DOVE, SeedVR, SeedVR2) and testset issues (w.r.t. SPMCS), outputs are offset by a few pixels from GT, resulting in errors in full-reference metric calculations. We have performed pixel-level alignment and recalculated the full-reference metrics (PSNR, SSIM, LPIPS). The paper has been revised at [[link]](https://arxiv.org/pdf/2508.14483v2).
 - [2025.08.21] Paper is released at [[link]](https://arxiv.org/abs/2508.14483).
 - [2025.08.06] UGC50 and AIGC50 testsets are made publicly available from [[link]](https://huggingface.co/csbhr/Vivid-VR/blob/main/testset.zip).
@@ -115,6 +116,7 @@ python VRDiT/inference.py \
     --input_dir=/dir/to/input/videos \
     --output_dir=/dir/to/output/videos \
     --num_temporal_process_frames=121 \  # For long video inference, if video longer than num_temporal_process_frames, aggregate sampling will be enabled in the temporal dimension
+    --restoration_guidance_scale=-1.0 \  # Optional, for restoration-guided sampling, if set to -1.0， it will be disable
     --upscale=0 \  # Optional, if set to 0, the short-size of output videos will be 1024
     --textfix \  # Optional, if given, the text region will be replaced by the output of Real-ESRGAN
     --save_images  # Optional, if given, the video frames will be saved
@@ -123,8 +125,10 @@ python VRDiT/inference.py \
 GPU memory usage:
 - For a 121-frame video, it requires approximately **43GB** GPU memory.
 - If you want to reduce GPU memory usage, replace "pipe.enable_model_cpu_offload" with "pipe.enable_sequential_cpu_offload" in [`./VRDiT/inference.py`](https://github.com/csbhr/Vivid-VR/blob/50421718473396922c27e460088a140a74887dfe/VRDiT/inference.py#L407). GPU memory usage is reduced to **25GB**, but the inference time is longer.
-- For the arg ["--num_temporal_process_frames"](https://github.com/csbhr/Vivid-VR/blob/50421718473396922c27e460088a140a74887dfe/VRDiT/inference.py#L319), smaller values ​​require less GPU memory but increase inference time.
+- For the arg "--num_temporal_process_frames", smaller values ​​require less GPU memory but increase inference time.
 
+Trade-off between fidelity and realism:
+- Using the arg "--restoration_guidance_scale" to enable restoration-guided sampling. Higher value yield more realistic results, while lower value preserve greater fidelity to the original input content. When the value is 1, restoration-guided sampling is disabled.
 
 ## 📧 Citation
 
