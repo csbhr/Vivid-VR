@@ -495,6 +495,7 @@ class CogVideoXVividVRControlNetPipeline(DiffusionPipeline, CogVideoXLoraLoaderM
         enable_spatial_tiling: bool = False,
         tile_size: int = 128,
         tile_stride: int = 64,
+        restoration_guidance_scale: float = -1.0,
     ) -> Union[CogVideoXPipelineOutput, Tuple]:
         
         # 1. Prepare latents, prompt_embeds and some denoising arguments
@@ -566,7 +567,8 @@ class CogVideoXVividVRControlNetPipeline(DiffusionPipeline, CogVideoXLoraLoaderM
                     attention_kwargs=attention_kwargs,
                     enable_spatial_tiling=enable_spatial_tiling,
                     tile_size=tile_size,
-                    tile_stride=tile_stride
+                    tile_stride=tile_stride,
+                    restoration_guidance_scale=restoration_guidance_scale
                 )
 
                 if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
@@ -591,7 +593,7 @@ class CogVideoXVividVRControlNetPipeline(DiffusionPipeline, CogVideoXLoraLoaderM
 
     def denoise_step(self, timestep_index, latents, control_latents, prompt_embeds, negative_prompt_embeds, timesteps, ofs_emb, old_pred_original_sample,
                      use_dynamic_cfg, guidance_scale, num_inference_steps, do_classifier_free_guidance,
-                     attention_kwargs, extra_step_kwargs):
+                     attention_kwargs, extra_step_kwargs, restoration_guidance_scale=-1.0):
 
         # broadcast to batch dimension in a way that's compatible with ONNX/Core ML
         timestep = timesteps[timestep_index]
@@ -674,6 +676,8 @@ class CogVideoXVividVRControlNetPipeline(DiffusionPipeline, CogVideoXLoraLoaderM
                 latents,
                 **extra_step_kwargs,
                 return_dict=False,
+                restoration_guidance_scale=restoration_guidance_scale,
+                restoration_ori_latent=control_latents,
             )
         latents = latents.to(prompt_embeds.dtype)
         print(f'[Time] Scheduler {time.time() - last_time:.2f} s')
@@ -803,6 +807,7 @@ class CogVideoXVividVRControlNetPipeline(DiffusionPipeline, CogVideoXLoraLoaderM
         enable_spatial_tiling: bool = False,
         tile_size: int = 128,
         tile_stride: int = 64,
+        restoration_guidance_scale: float = -1.0,
     ):
         tiling_infos = list(prepare_tiling_infos_generator(
             latents=latents,
@@ -835,7 +840,8 @@ class CogVideoXVividVRControlNetPipeline(DiffusionPipeline, CogVideoXLoraLoaderM
                 num_inference_steps=num_inference_steps,
                 do_classifier_free_guidance=do_classifier_free_guidance,
                 attention_kwargs=attention_kwargs,
-                extra_step_kwargs=extra_step_kwargs
+                extra_step_kwargs=extra_step_kwargs,
+                restoration_guidance_scale=restoration_guidance_scale
             )
 
             latents_meshgrid[tile_slice] += tile_latents * tile_weights
