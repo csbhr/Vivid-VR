@@ -339,6 +339,8 @@ class CogVideoXDPMScheduler(SchedulerMixin, ConfigMixin):
         generator=None,
         variance_noise: Optional[torch.Tensor] = None,
         return_dict: bool = False,
+        restoration_guidance_scale: float = -1.0,
+        restoration_ori_latent=None,
     ) -> Union[DDIMSchedulerOutput, Tuple]:
         """
         Predict the sample from the previous timestep by reversing the SDE. This function propagates the diffusion
@@ -415,6 +417,12 @@ class CogVideoXDPMScheduler(SchedulerMixin, ConfigMixin):
                 f"prediction_type given as {self.config.prediction_type} must be one of `epsilon`, `sample`, or"
                 " `v_prediction`"
             )
+        
+        # Restoration-Guided Sampling
+        if restoration_guidance_scale > 0:
+            restoration_direction = restoration_ori_latent - pred_original_sample
+            restoration_strength = (float(timestep) / len(self.alphas)) ** restoration_guidance_scale
+            pred_original_sample = pred_original_sample + restoration_strength * restoration_direction
 
         h, r, lamb, lamb_next = self.get_variables(alpha_prod_t, alpha_prod_t_prev, alpha_prod_t_back)
         mult = list(self.get_mult(h, r, alpha_prod_t, alpha_prod_t_prev, alpha_prod_t_back))
