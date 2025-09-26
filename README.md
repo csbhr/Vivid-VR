@@ -27,14 +27,15 @@
     <img style="width:100%" src="assets/teaser.png">
 </div>
 
-For more visual results, go checkout our <a href="https://csbhr.github.io/projects/vivid-vr/" target="_blank">[project page]</a>
+Click to download more visual comparisons on <a href="https://github.com/csbhr/Vivid-VR/blob/main/assets/visual_comparison_synthetic.pdf" target="_blank">[synthetic]</a>, <a href="https://github.com/csbhr/Vivid-VR/blob/main/assets/visual_comparison_real_world.pdf" target="_blank">[real-world]</a>, and <a href="https://github.com/csbhr/Vivid-VR/blob/main/assets/visual_comparison_aigc.pdf" target="_blank">[AIGC]</a> videos.  
+For more video visualizations, go checkout our <a href="https://csbhr.github.io/projects/vivid-vr/" target="_blank">[project page]</a>.
 
 ---
 </div>
 
 
 ## 🔥 Update
-- [2025.09.20] Support restoration-guided sampling for the trade-off between fidelity and realism, using the arg "--restoration_guidance_scale".
+- [2025.09.20] Support restoration-guided sampling for the trade-off between fidelity and realism, using the arg "--restoration_guidance_scale", click [here](https://github.com/csbhr/Vivid-VR/blob/main/assets/visual_restoration_guided_sampling.pdf) to view visual comparisons.
 - [2025.08.30] Support long video inference by aggregate sampling in the temporal dimension, using the arg "--num_temporal_process_frames".
 - [2025.08.26] **Correction:** Due to inference-time cropping (w.r.t. DOVE, SeedVR, SeedVR2) and testset issues (w.r.t. SPMCS), outputs are offset by a few pixels from GT, resulting in errors in full-reference metric calculations. We have performed pixel-level alignment and recalculated the full-reference metrics (PSNR, SSIM, LPIPS). The paper has been revised at [[link]](https://arxiv.org/pdf/2508.14483v2).
 - [2025.08.21] Paper is released at [[link]](https://arxiv.org/abs/2508.14483).
@@ -129,6 +130,7 @@ GPU memory usage:
 
 Trade-off between fidelity and realism:
 - Using the arg "--restoration_guidance_scale" to enable restoration-guided sampling. Higher value yield more realistic results, while lower value preserve greater fidelity to the original input content. When the value is -1, restoration-guided sampling is disabled.
+- Click [here](https://github.com/csbhr/Vivid-VR/blob/main/assets/visual_restoration_guided_sampling.pdf) to view visual comparisons.
 
 ## 📧 Citation
 
