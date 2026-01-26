@@ -36,10 +36,9 @@ For more video visualizations, go checkout our <a href="https://csbhr.github.io/
 
 ## 🔥 Update
 - [2026.01.26] This work has been accepted by **ICLR**.
-- [2025.09.29] **Paper Update:** Add some experiments. Go checkout the revised paper at [[link]](https://arxiv.org/pdf/2508.14483v3).
+- [2025.09.29] Paper Update: Add some experiments. Go checkout the revised paper at [[link]](https://arxiv.org/pdf/2508.14483v3).
 - [2025.09.20] Support restoration-guided sampling for the trade-off between fidelity and realism, using the arg "--restoration_guidance_scale", click [here](https://github.com/csbhr/Vivid-VR/blob/main/assets/visual_restoration_guided_sampling.pdf) to view visual comparisons.
 - [2025.08.30] Support long video inference by aggregate sampling in the temporal dimension, using the arg "--num_temporal_process_frames".
-- [2025.08.26] **Correction:** Due to inference-time cropping (w.r.t. DOVE, SeedVR, SeedVR2) and testset issues (w.r.t. SPMCS), outputs are offset by a few pixels from GT, resulting in errors in full-reference metric calculations. We have performed pixel-level alignment and recalculated the full-reference metrics (PSNR, SSIM, LPIPS). The paper has been revised at [[link]](https://arxiv.org/pdf/2508.14483v2).
 - [2025.08.21] Paper is released at [[link]](https://arxiv.org/abs/2508.14483).
 - [2025.08.06] UGC50 and AIGC50 testsets are made publicly available from [[link]](https://huggingface.co/csbhr/Vivid-VR/blob/main/testset.zip).
 - [2025.08.05] Inference code is released.
