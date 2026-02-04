@@ -138,12 +138,11 @@ Trade-off between fidelity and realism:
    If you find our repo useful for your research, please consider citing it:
 
    ```bibtex
-   @article{bai2025vividvr,
+   @InProceedings{bai2026vividvr,
       title={Vivid-VR: Distilling Concepts from Text-to-Video Diffusion Transformer for Photorealistic Video Restoration}, 
       author={Bai, Haoran and Chen, Xiaoxu and Yang, Canqian and He, Zongyao and Deng, Sibin and Chen, Ying},
-      journal={arXiv preprint arXiv:2508.14483},
-      year={2025},
-      url={https://arxiv.org/abs/2508.14483}
+      booktitle={International Conference on Learning Representations (ICLR)},
+      year={2026}
     }
    ```
 
